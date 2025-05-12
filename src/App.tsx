@@ -29,6 +29,9 @@ function App() {
     <AuthProvider>
       <Suspense fallback={<p>Loading...</p>}>
         <>
+          {/* Tempo routes need to be rendered before the application routes */}
+          {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
+
           <Routes>
             <Route
               path="/"
@@ -65,11 +68,12 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            {/* Allow Tempo to capture routes before any catch-all */}
             {import.meta.env.VITE_TEMPO === "true" && (
-              <Route path="/tempobook/*" />
+              <Route path="/tempobook/*" element={<></>} />
             )}
           </Routes>
-          {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
+
           <Toaster />
         </>
       </Suspense>
