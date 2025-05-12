@@ -1,15 +1,18 @@
 import { Suspense, lazy } from "react";
 import { useRoutes, Routes, Route, Navigate } from "react-router-dom";
-import Home from "./components/home";
+import HomePage from "./components/home";
 import routes from "tempo-routes";
 import { AuthProvider } from "./context/AuthContext";
 import { useAuth } from "./context/AuthContext";
+import { Toaster } from "@/components/ui/toaster";
 
 // Lazy load pages for better performance
 const PropertyListingPage = lazy(() => import("./pages/listing/[id]"));
 const PortfolioPage = lazy(() => import("./pages/portfolio/[userId]"));
 const LoginPage = lazy(() => import("./pages/auth/login"));
 const SignUpPage = lazy(() => import("./pages/auth/signup"));
+const CreateListingPage = lazy(() => import("./pages/create-listing"));
+const EditListingPage = lazy(() => import("./pages/edit-listing"));
 
 // Protected route component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -31,7 +34,7 @@ function App() {
               path="/"
               element={
                 <ProtectedRoute>
-                  <Home />
+                  <HomePage />
                 </ProtectedRoute>
               }
             />
@@ -46,11 +49,28 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/create-listing"
+              element={
+                <ProtectedRoute>
+                  <CreateListingPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/edit-listing/:id"
+              element={
+                <ProtectedRoute>
+                  <EditListingPage />
+                </ProtectedRoute>
+              }
+            />
             {import.meta.env.VITE_TEMPO === "true" && (
               <Route path="/tempobook/*" />
             )}
           </Routes>
           {import.meta.env.VITE_TEMPO === "true" && useRoutes(routes)}
+          <Toaster />
         </>
       </Suspense>
     </AuthProvider>

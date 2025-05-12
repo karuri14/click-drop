@@ -1,5 +1,7 @@
-import React, { useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useLeads } from "@/hooks/useLeads";
+import { useAuth } from "@/context/AuthContext";
 import {
   Carousel,
   CarouselContent,
@@ -46,47 +48,192 @@ interface PropertyDetails {
 
 export default function PropertyListingPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { createLead } = useLeads(id);
   const [openBookCall, setOpenBookCall] = useState(false);
   const [openInterested, setOpenInterested] = useState(false);
   const [formSubmitted, setFormSubmitted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [propertyDetails, setPropertyDetails] =
+    useState<PropertyDetails | null>(null);
+  const [realtorDetails, setRealtorDetails] = useState<any>(null);
 
-  // Mock data - in a real app, this would be fetched from an API using the ID
-  const propertyDetails: PropertyDetails = {
-    id: id || "1",
-    title: "Luxury Waterfront Villa",
-    price: 750000,
-    description:
-      "This stunning waterfront villa offers panoramic views of the ocean, with 4 bedrooms, 3 bathrooms, and a private pool. The property features modern architecture, high-end finishes, and is located in an exclusive gated community with 24/7 security.",
-    location: "Palm Beach, Florida",
-    features: [
-      "4 Bedrooms",
-      "3 Bathrooms",
-      "Private Pool",
-      "Ocean View",
-      "Gated Community",
-      "3,500 sq ft",
-    ],
-    images: [
-      "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&q=80",
-      "https://images.unsplash.com/photo-1613977257363-707ba9348227?w=800&q=80",
-      "https://images.unsplash.com/photo-1613977257592-4871e5fcd7c4?w=800&q=80",
-      "https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=800&q=80",
-    ],
-    realtorName: "Jane Smith",
-    realtorPhone: "+1 (555) 123-4567",
-    realtorEmail: "jane.smith@realestate.com",
-  };
+  // Fetch property details from Supabase
+  useEffect(() => {
+    const fetchPropertyDetails = async () => {
+      if (!id) return;
 
-  const handleSubmit = (event: React.FormEvent) => {
+      try {
+        setLoading(true);
+
+        // Fetch property listing
+        const propertyResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/property_listings?id=eq.${id}&select=*`,
+          {
+            headers: {
+              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+          },
+        );
+
+        if (!propertyResponse.ok) {
+          throw new Error("Failed to fetch property details");
+        }
+
+        const propertyData = await propertyResponse.json();
+
+        if (!propertyData || propertyData.length === 0) {
+          throw new Error("Property not found");
+        }
+
+        const property = propertyData[0];
+
+        // Fetch realtor details
+        const realtorResponse = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/profiles?id=eq.${property.user_id}&select=*`,
+          {
+            headers: {
+              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+          },
+        );
+
+        if (!realtorResponse.ok) {
+          throw new Error("Failed to fetch realtor details");
+        }
+
+        const realtorData = await realtorResponse.json();
+        const realtor = realtorData[0] || {
+          full_name: "Property Owner",
+          email: "contact@example.com",
+          phone: "Contact via email",
+        };
+
+        // Record a view
+        await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/property_views`,
+          {
+            method: "POST",
+            headers: {
+              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              property_id: id,
+              viewer_id: user?.id || null,
+              viewed_at: new Date().toISOString(),
+            }),
+          },
+        );
+
+        // Parse features from description or use default features
+        const features = property.features || [
+          "Bedrooms",
+          "Bathrooms",
+          "Parking",
+          "Square Footage",
+          "Year Built",
+          "Property Type",
+        ];
+
+        // Format property details
+        setPropertyDetails({
+          id: property.id,
+          title: property.title,
+          price: Number(property.price),
+          description: property.description,
+          location: property.location,
+          features: features,
+          images: property.images || [
+            property.image_url ||
+              "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=800&q=80",
+          ],
+          realtorName: realtor.full_name,
+          realtorPhone: realtor.phone,
+          realtorEmail: realtor.email,
+        });
+
+        setRealtorDetails(realtor);
+      } catch (err: any) {
+        setError(
+          err.message || "An error occurred while fetching property details",
+        );
+        console.error("Error fetching property details:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPropertyDetails();
+  }, [id, user]);
+
+  const handleSubmit = async (
+    event: React.FormEvent,
+    type: "call" | "interest",
+  ) => {
     event.preventDefault();
-    // In a real app, this would send the form data to an API
-    setFormSubmitted(true);
-    setTimeout(() => {
-      setOpenBookCall(false);
-      setOpenInterested(false);
-      setFormSubmitted(false);
-    }, 3000);
+    if (!id || !propertyDetails) return;
+
+    try {
+      // Get form data
+      const formData = new FormData(event.target as HTMLFormElement);
+      const formValues: Record<string, string> = {};
+
+      formData.forEach((value, key) => {
+        formValues[key] = value.toString();
+      });
+
+      // Create lead in database
+      const leadData = {
+        property_id: id,
+        name: formValues.name || formValues["name-interested"] || "",
+        email: formValues.email || formValues["email-interested"] || "",
+        phone: formValues.phone || formValues["phone-interested"] || "",
+        message: formValues.message || formValues["message-interested"] || "",
+        lead_type: type,
+        created_at: new Date().toISOString(),
+      };
+
+      await createLead(leadData);
+
+      setFormSubmitted(true);
+      setTimeout(() => {
+        setOpenBookCall(false);
+        setOpenInterested(false);
+        setFormSubmitted(false);
+      }, 3000);
+    } catch (err) {
+      console.error("Error submitting lead:", err);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-primary border-t-transparent"></div>
+          <p className="mt-2 text-gray-600">Loading property details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !propertyDetails) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-md p-6 max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold text-red-600 mb-4">Error</h2>
+          <p className="text-gray-700 mb-6">{error || "Property not found"}</p>
+          <Button onClick={() => navigate("/")}>Return to Dashboard</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -220,7 +367,10 @@ export default function PropertyListingPage() {
                         </p>
                       </div>
                     ) : (
-                      <form onSubmit={handleSubmit} className="space-y-4">
+                      <form
+                        onSubmit={(e) => handleSubmit(e, "call")}
+                        className="space-y-4"
+                      >
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="name">Full Name</Label>
@@ -292,7 +442,10 @@ export default function PropertyListingPage() {
                         </p>
                       </div>
                     ) : (
-                      <form onSubmit={handleSubmit} className="space-y-4">
+                      <form
+                        onSubmit={(e) => handleSubmit(e, "interest")}
+                        className="space-y-4"
+                      >
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <Label htmlFor="name-interested">Full Name</Label>
